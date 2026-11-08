@@ -26,15 +26,15 @@ export class StatsScene extends Phaser.Scene {
     overlay.fillStyle(0x0a0a14, 0.88);
     overlay.fillRect(0, 0, width, height);
 
-    this.add.text(width / 2, 45, 'WORD RUNNER STATS', {
+    this.add.text(width / 2, 45, 'SITE DEMOLITION STATS', {
       fontFamily: "'Press Start 2P', monospace",
-      fontSize: '24px',
+      fontSize: '22px',
       color: '#ffe135',
       stroke: '#b83000',
       strokeThickness: 5
     }).setOrigin(0.5);
 
-    this.add.text(width / 2, 92, `BEST STREAK: ${stats.bestStreak}   WORDS MASTERED: ${stats.totalWordsCompleted}`, {
+    this.add.text(width / 2, 92, `BEST STREAK: ${stats.bestStreak}   WALLS SMASHED: ${stats.totalWordsCompleted}`, {
       fontFamily: "'Press Start 2P', monospace",
       fontSize: '13px',
       color: '#ffffff'
@@ -135,7 +135,7 @@ export class StatsScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     if (mastered.length === 0) {
-      this.add.text(col2X, startY + 36, 'Keep running!', {
+      this.add.text(col2X, startY + 36, 'Keep smashing walls!', {
         fontFamily: "'Fredoka', sans-serif",
         fontSize: '18px',
         color: '#aaaaaa'

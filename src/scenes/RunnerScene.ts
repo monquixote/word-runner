@@ -23,11 +23,14 @@ export interface RunnerSceneInitData {
   retryMistakes?: RoundMistake[];
 }
 
+type WallStyle = 'brick' | 'cinderblock' | 'barricade';
+
 interface BoardTarget {
   lane: number; // 0 = Left, 1 = Center, 2 = Right
   text: string;
   isCorrect: boolean;
   broken: boolean;
+  wallStyle: WallStyle;
   highlightedWrong?: boolean;
   highlightedCorrect?: boolean;
   badgeObj: Phaser.GameObjects.Text;
@@ -40,7 +43,7 @@ interface GantrySign {
   optionText: Phaser.GameObjects.Text;
 }
 
-interface WoodSplinter {
+interface BrickDebris {
   worldX: number;
   worldY: number;
   z: number;
@@ -50,6 +53,7 @@ interface WoodSplinter {
   sizeW: number;
   sizeH: number;
   color: number;
+  borderColor: number;
   alpha: number;
 }
 
@@ -62,7 +66,7 @@ const GANTRY_H = 80;
 
 const FOCAL_LENGTH = 500;
 const HORIZON_Y = 212;
-const GROUND_NEAR_Y = 488;
+const GROUND_NEAR_Y = 492;
 const SPAWN_Z = 1840;
 const STRIKE_Z = 48;
 
@@ -85,13 +89,13 @@ export class RunnerScene extends Phaser.Scene {
   private roundMistakes: RoundMistake[] = [];
   private currentSpokenText: string | null = null;
 
-  // 2.5D Runner World State
+  // 2.5D Bulldozer World State
   private currentLane: number = 1;
   private playerWorldX: number = 0;
   private playerWorldY: number = 0;
   private scrollZ: number = 0;
   private waveZ: number = SPAWN_Z;
-  private baseSpeed: number = 500; // Scaled for 960x540 depth
+  private baseSpeed: number = 500;
   private isDashing: boolean = false;
   private isProcessingImpact: boolean = false;
   private isTransitioning: boolean = false;
@@ -107,7 +111,7 @@ export class RunnerScene extends Phaser.Scene {
   private playerSprite!: Phaser.GameObjects.Image;
   private boardTargets: BoardTarget[] = [];
   private gantrySigns: GantrySign[] = [];
-  private splinters: WoodSplinter[] = [];
+  private splinters: BrickDebris[] = [];
   private pillarZPositions: number[] = [];
 
   // HUD
@@ -200,13 +204,13 @@ export class RunnerScene extends Phaser.Scene {
     this.boardsGraphics = this.add.graphics().setDepth(5);
     this.particlesGraphics = this.add.graphics().setDepth(12);
 
-    // 2. Player Back-Facing Runner Sprite (Scaled up cleanly for blocky 8-bit look)
+    // 2. Player Rear-Facing Bulldozer Sprite (Blocky 8-bit pixel art)
     this.playerSprite = this.add.image(width / 2, GROUND_NEAR_Y, `runner_run1_${this.level.id}`);
     this.playerSprite.setOrigin(0.5, 1);
     this.playerSprite.setScale(2.5);
     this.playerSprite.setDepth(10);
 
-    // 3. Top HUD, Question Banner & Overhead Highway Gantry Signs
+    // 3. Top HUD, Question Banner & Overhead Steel Truss Gantry Signs
     this.createHUD();
     this.createGantrySigns();
 
@@ -223,17 +227,19 @@ export class RunnerScene extends Phaser.Scene {
 
     // 5. Bottom Controls Hint Bar
     const hintBg = this.add.graphics().setDepth(20);
-    hintBg.fillStyle(0x060810, 0.9);
+    hintBg.fillStyle(0x090b10, 0.94);
     hintBg.fillRect(0, height - 26, width, 26);
+    hintBg.lineStyle(2, 0xf59e0b, 0.8);
+    hintBg.lineBetween(0, height - 26, width, height - 26);
 
     this.add.text(
       width / 2,
       height - 13,
-      '◀/▶ OR TAP SIGN: PICK SUFFIX LANE  |  ▲/SPACE OR TAP AGAIN: TURBO DASH!',
+      '◀/▶ OR TAP SIGN: STEER DOZER  |  ▲/SPACE OR TAP AGAIN: FULL THROTTLE SMASH!',
       {
         fontFamily: "'Press Start 2P', monospace",
         fontSize: '10px',
-        color: '#ffdd66'
+        color: '#ffe135'
       }
     ).setOrigin(0.5).setDepth(21);
 
@@ -248,18 +254,18 @@ export class RunnerScene extends Phaser.Scene {
     const { width } = this.scale;
 
     const topBar = this.add.graphics().setDepth(20);
-    topBar.fillStyle(0x090a12, 0.96);
+    topBar.fillStyle(0x0c0f17, 0.96);
     topBar.fillRect(0, 0, width, 40);
-    topBar.lineStyle(2, this.isHardMode ? 0xff3333 : 0x334477, 1);
+    topBar.lineStyle(2, this.isHardMode ? 0xff3333 : 0xf59e0b, 1);
     topBar.lineBetween(0, 40, width, 40);
 
-    // Hearts (Health)
+    // Hearts (Armor / Health)
     for (let i = 0; i < this.stats.maxHealth; i++) {
       const heart = this.add.image(24 + i * 32, 20, 'heart_full').setScale(0.7).setDepth(21);
       this.hearts.push(heart);
     }
 
-    // Score, Streak, Progress - Crisp 13px
+    // Score, Streak, Progress
     this.scoreText = this.add.text(196, 12, `SCORE:${this.stats.score}`, {
       fontFamily: "'Press Start 2P', monospace",
       fontSize: '12px',
@@ -272,11 +278,11 @@ export class RunnerScene extends Phaser.Scene {
       color: '#ffe135'
     }).setDepth(21);
 
-    const waveLabel = this.isEndlessMode ? 'WAVE:1 (∞)' : `WAVE:1/${this.totalEncounters}`;
+    const waveLabel = this.isEndlessMode ? 'WALL:1 (∞)' : `WALL:1/${this.totalEncounters}`;
     this.progressText = this.add.text(580, 12, waveLabel, {
       fontFamily: "'Press Start 2P', monospace",
       fontSize: '12px',
-      color: '#00ffaa'
+      color: '#4ade80'
     }).setDepth(21);
 
     // Sound & Menu exit buttons
@@ -290,9 +296,9 @@ export class RunnerScene extends Phaser.Scene {
       soundBtn.setText(enabled ? '🔊' : '🔇');
     });
 
-    const menuBtn = this.add.text(width - 16, 12, this.isEndlessMode ? '✕ FINISH' : '✕ MENU', {
+    const menuBtn = this.add.text(width - 16, 12, this.isEndlessMode ? '✕ FINISH' : '✕ SITE MENU', {
       fontFamily: "'Press Start 2P', monospace",
-      fontSize: '12px',
+      fontSize: '11px',
       color: '#ff7777'
     }).setOrigin(1, 0).setDepth(21).setInteractive({ useHandCursor: true });
 
@@ -315,12 +321,19 @@ export class RunnerScene extends Phaser.Scene {
     const bannerH = 68;
 
     const bannerBg = this.add.graphics();
-    bannerBg.fillStyle(0x0b0e1d, 0.96);
+    bannerBg.fillStyle(0x111522, 0.96);
     bannerBg.fillRoundedRect(-bannerW / 2, -bannerH / 2, bannerW, bannerH, 8);
-    bannerBg.lineStyle(2, this.isHardMode ? 0xff4444 : 0xffe135, 1);
+    bannerBg.lineStyle(3, this.isHardMode ? 0xff4444 : 0xf59e0b, 1);
     bannerBg.strokeRoundedRect(-bannerW / 2, -bannerH / 2, bannerW, bannerH, 8);
 
-    this.categoryBadgeText = this.add.text(0, -18, 'WORD RUNNER', {
+    // Corner steel rivets on prompt banner
+    bannerBg.fillStyle(0x9ca3af, 1);
+    bannerBg.fillRect(-bannerW / 2 + 8, -bannerH / 2 + 8, 5, 5);
+    bannerBg.fillRect(bannerW / 2 - 13, -bannerH / 2 + 8, 5, 5);
+    bannerBg.fillRect(-bannerW / 2 + 8, bannerH / 2 - 13, 5, 5);
+    bannerBg.fillRect(bannerW / 2 - 13, bannerH / 2 - 13, 5, 5);
+
+    this.categoryBadgeText = this.add.text(0, -18, 'BULLDOZER DEMOLITION', {
       fontFamily: "'Press Start 2P', monospace",
       fontSize: '11px',
       color: '#ffe135'
@@ -401,15 +414,15 @@ export class RunnerScene extends Phaser.Scene {
 
       sign.bg.clear();
 
-      // Support struts
-      sign.bg.lineStyle(3, 0x445577, 0.9);
-      sign.bg.lineBetween(-GANTRY_W * 0.35, -GANTRY_H / 2 - 8, -GANTRY_W * 0.35, -GANTRY_H / 2);
-      sign.bg.lineBetween(GANTRY_W * 0.35, -GANTRY_H / 2 - 8, GANTRY_W * 0.35, -GANTRY_H / 2);
+      // Overhead Steel Truss Support Struts
+      sign.bg.lineStyle(4, 0x64748b, 0.95);
+      sign.bg.lineBetween(-GANTRY_W * 0.35, -GANTRY_H / 2 - 10, -GANTRY_W * 0.35, -GANTRY_H / 2);
+      sign.bg.lineBetween(GANTRY_W * 0.35, -GANTRY_H / 2 - 10, GANTRY_W * 0.35, -GANTRY_H / 2);
 
-      let fillColor = 0x101528;
-      let borderColor = 0x3b486b;
-      let borderAlpha = 0.9;
-      let badgeColor = '#8899bb';
+      let fillColor = 0x141824;
+      let borderColor = 0x475569;
+      let borderAlpha = 0.95;
+      let badgeColor = '#94a3b8';
       let textColor = '#ffffff';
 
       if (board?.highlightedCorrect || (board?.broken && board?.isCorrect)) {
@@ -425,17 +438,24 @@ export class RunnerScene extends Phaser.Scene {
         badgeColor = '#ff6666';
         textColor = '#ffcccc';
       } else if (isSelected) {
-        fillColor = 0x172446;
-        borderColor = 0xffe135;
+        fillColor = 0x261c0a;
+        borderColor = 0xf59e0b;
         borderAlpha = 1;
         badgeColor = '#ffe135';
         textColor = '#ffffff';
       }
 
-      sign.bg.fillStyle(fillColor, 0.95);
+      sign.bg.fillStyle(fillColor, 0.96);
       sign.bg.fillRoundedRect(-GANTRY_W / 2, -GANTRY_H / 2, GANTRY_W, GANTRY_H, 8);
-      sign.bg.lineStyle(isSelected ? 3 : 2, borderColor, borderAlpha);
+      sign.bg.lineStyle(isSelected ? 3.5 : 2, borderColor, borderAlpha);
       sign.bg.strokeRoundedRect(-GANTRY_W / 2, -GANTRY_H / 2, GANTRY_W, GANTRY_H, 8);
+
+      // Small yellow hazard stripe tabs on top corners of active gantry sign
+      if (isSelected) {
+        sign.bg.fillStyle(0xffe135, 1);
+        sign.bg.fillRect(-GANTRY_W / 2 + 10, -GANTRY_H / 2, 24, 4);
+        sign.bg.fillRect(GANTRY_W / 2 - 34, -GANTRY_H / 2, 24, 4);
+      }
 
       sign.badgeText.setColor(badgeColor);
       sign.optionText.setColor(textColor);
@@ -565,9 +585,9 @@ export class RunnerScene extends Phaser.Scene {
     this.waveSpawnTimestamp = this.time.now;
 
     if (this.isEndlessMode) {
-      this.progressText.setText(`WAVE:${this.questionIndex + 1} (∞)`);
+      this.progressText.setText(`WALL:${this.questionIndex + 1} (∞)`);
     } else {
-      this.progressText.setText(`WAVE:${this.questionIndex + 1}/${this.totalEncounters}`);
+      this.progressText.setText(`WALL:${this.questionIndex + 1}/${this.totalEncounters}`);
     }
 
     const card = this.encounterDeck[this.questionIndex] || this.encounterDeck[0];
@@ -577,6 +597,7 @@ export class RunnerScene extends Phaser.Scene {
     let badgeStr = '';
     let correctStr = '';
     let distractors: string[] = [];
+    let wallStyle: WallStyle = 'brick';
 
     if (card.type === 'rule' && card.rule) {
       const rl = card.rule;
@@ -585,10 +606,11 @@ export class RunnerScene extends Phaser.Scene {
       this.currentSpokenText = rl.spokenWord || rl.correctAnswer;
       this.promptAudioBtn.setVisible(true);
 
-      badgeStr = `⭐ SPELLING RULE • ${card.levelTitle.toUpperCase()}`;
+      badgeStr = `🏗️ SITE SPELLING RULE • ${card.levelTitle.toUpperCase()}`;
       promptStr = rl.prompt;
       correctStr = rl.correctAnswer;
       distractors = [...rl.distractors];
+      wallStyle = 'cinderblock';
     } else if (card.type === 'spelling') {
       const word = card.word || this.level.words[0];
       this.currentWord = word;
@@ -596,10 +618,11 @@ export class RunnerScene extends Phaser.Scene {
       this.currentSpokenText = word.combinedWord;
       this.promptAudioBtn.setVisible(true);
 
-      badgeStr = `📝 SPELL WORD • ${(word.ruleNote || word.clue).toUpperCase()}`;
+      badgeStr = `🧱 BRICK WALL SPELLING • ${(word.ruleNote || word.clue).toUpperCase()}`;
       promptStr = `${word.rootWord.toUpperCase()}  +  ${word.targetSuffix}  =  ?`;
       correctStr = word.combinedWord;
       distractors = [...word.spellingDistractors];
+      wallStyle = this.questionIndex % 3 === 2 ? 'barricade' : 'brick';
 
       this.time.delayedCall(140, () => {
         if (this.scene.isActive() && this.currentSpokenText) {
@@ -613,10 +636,11 @@ export class RunnerScene extends Phaser.Scene {
       this.currentSpokenText = word.rootWord;
       this.promptAudioBtn.setVisible(true);
 
-      badgeStr = `🏃 PICK SUFFIX • ${word.clue.toUpperCase()}`;
+      badgeStr = `🚜 SMASH SUFFIX WALL • ${word.clue.toUpperCase()}`;
       promptStr = `${word.rootWord.toUpperCase()}  +  ___`;
       correctStr = word.targetSuffix;
       distractors = Phaser.Utils.Array.Shuffle([...word.distractorSuffixes]).slice(0, 2);
+      wallStyle = this.questionIndex % 4 === 3 ? 'barricade' : 'brick';
 
       this.time.delayedCall(140, () => {
         if (this.scene.isActive() && this.currentWord) {
@@ -652,14 +676,14 @@ export class RunnerScene extends Phaser.Scene {
         sign.optionText.setFontSize(opt.text.length > 10 ? '20px' : '24px');
       }
 
-      // Large bold text directly on the approaching 3D gate
+      // Large bold text directly on the approaching 3D brick wall signplate
       const boardLabel = opt.text.length <= 12 ? opt.text : `${lane + 1}`;
       const badgeObj = this.add.text(0, 0, boardLabel, {
         fontFamily: "'Fredoka', 'Press Start 2P', sans-serif",
         fontSize: '22px',
         fontStyle: 'bold',
-        color: '#2b1406',
-        stroke: '#fff6d6',
+        color: '#111827',
+        stroke: '#fffbeb',
         strokeThickness: 3
       }).setOrigin(0.5).setDepth(7);
 
@@ -668,6 +692,7 @@ export class RunnerScene extends Phaser.Scene {
         text: opt.text,
         isCorrect: opt.isCorrect,
         broken: false,
+        wallStyle,
         badgeObj
       });
     }
@@ -693,11 +718,11 @@ export class RunnerScene extends Phaser.Scene {
     if (this.isTransitioning) return;
     const dt = Math.min(delta / 1000, 0.05);
 
-    // 1. Smoothly interpolate player X toward target lane X
+    // 1. Smoothly steer bulldozer X toward target lane X
     const targetX = LANE_WORLD_X[this.currentLane];
     this.playerWorldX = Phaser.Math.Linear(this.playerWorldX, targetX, Math.min(1, dt * 14));
 
-    // 2. Determine forward running speed
+    // 2. Determine forward driving speed
     const streakBonus = Math.min(this.stats.currentStreak * 24, 190);
     let currentSpeed = this.baseSpeed + streakBonus;
 
@@ -707,9 +732,9 @@ export class RunnerScene extends Phaser.Scene {
 
     if (this.isDashing) {
       currentSpeed = 2500;
-      this.playerWorldY = Phaser.Math.Linear(this.playerWorldY, 36, Math.min(1, dt * 15));
+      this.playerWorldY = Phaser.Math.Linear(this.playerWorldY, 10, Math.min(1, dt * 15));
     } else if (!this.isHardMode && !this.isProcessingImpact && this.waveZ < 720 && this.waveZ > STRIKE_Z) {
-      // Focus Zone in Normal Mode: slow down gently near gates so text is easy to read
+      // Focus Zone in Normal Mode: slow down gently near walls so text is easy to read
       const focusFactor = Phaser.Math.Clamp((this.waveZ - STRIKE_Z) / 672, 0.28, 1);
       currentSpeed *= focusFactor;
     }
@@ -732,9 +757,9 @@ export class RunnerScene extends Phaser.Scene {
       }
     }
 
-    // 4. Animate player running stride
+    // 4. Animate bulldozer caterpillar tracks & engine vibration
     if (this.playerPose === 'run') {
-      this.runAnimTimer += dt * (this.isDashing ? 18 : 9);
+      this.runAnimTimer += dt * (this.isDashing ? 22 : 12);
       if (this.runAnimTimer >= 1) {
         this.runAnimTimer = 0;
         this.runFrame = this.runFrame === 1 ? 2 : 1;
@@ -743,8 +768,9 @@ export class RunnerScene extends Phaser.Scene {
     }
 
     const playerProj = this.project3D(this.playerWorldX, this.playerWorldY, 0);
-    const bobOffset = this.playerPose === 'run' ? Math.abs(Math.sin(this.runAnimTimer * Math.PI)) * 6 : 0;
-    this.playerSprite.setPosition(playerProj.screenX, playerProj.screenY - bobOffset);
+    // Subtle heavy diesel engine vibration
+    const rumbleOffset = this.playerPose === 'run' ? (this.runFrame === 1 ? 2 : 0) : 0;
+    this.playerSprite.setPosition(playerProj.screenX, playerProj.screenY - rumbleOffset);
 
     this.renderCorridor();
     this.renderBoards();
@@ -773,6 +799,7 @@ export class RunnerScene extends Phaser.Scene {
 
       soundFx.playKick();
       soundFx.playEnemyKnockout();
+      this.cameras.main.shake(110, 0.006);
 
       if (this.currentWord) {
         speechManager.speakWord(this.currentWord.combinedWord);
@@ -780,7 +807,7 @@ export class RunnerScene extends Phaser.Scene {
         speechManager.speakWord(this.currentRule.spokenWord);
       }
 
-      this.spawnBoardSplinters(LANE_WORLD_X[this.currentLane], this.waveZ);
+      this.spawnBrickDebris(LANE_WORLD_X[this.currentLane], this.waveZ, chosenBoard.wallStyle);
 
       this.stats.currentStreak += 1;
       if (this.stats.currentStreak > this.stats.bestStreak) {
@@ -797,10 +824,10 @@ export class RunnerScene extends Phaser.Scene {
       this.updateGantryVisuals();
 
       const completedMsg = this.currentWord
-        ? `✨ ${this.currentWord.combinedWord.toUpperCase()}! +${points}`
-        : `✨ CORRECT! +${points}`;
+        ? `💥 ${this.currentWord.combinedWord.toUpperCase()}! +${points}`
+        : `💥 SMASHED! +${points}`;
 
-      this.showFeedback(completedMsg, '#00ff88');
+      this.showFeedback(completedMsg, '#4ade80');
 
       this.questionIndex += 1;
       this.time.delayedCall(900, () => {
@@ -813,7 +840,7 @@ export class RunnerScene extends Phaser.Scene {
       this.playerWorldY = 0;
 
       soundFx.playPlayerHurt();
-      this.cameras.main.shake(180, 0.012);
+      this.cameras.main.shake(200, 0.014);
 
       if (chosenBoard) {
         chosenBoard.highlightedWrong = true;
@@ -867,19 +894,26 @@ export class RunnerScene extends Phaser.Scene {
     }
   }
 
-  private spawnBoardSplinters(worldX: number, z: number): void {
-    const colors = [0xffe135, 0x38bdf8, 0x4ade80, 0xf43f5e, 0xffffff];
-    for (let i = 0; i < 28; i++) {
+  private spawnBrickDebris(worldX: number, z: number, wallStyle: WallStyle): void {
+    const brickPalette =
+      wallStyle === 'cinderblock'
+        ? [0x64748b, 0x475569, 0x94a3b8, 0xf59e0b, 0x334155]
+        : wallStyle === 'barricade'
+          ? [0xf97316, 0xfef08a, 0xd97706, 0x78350f, 0xffffff]
+          : [0xdc2626, 0xb91c1c, 0x991b1b, 0x9ca3af, 0xf59e0b];
+
+    for (let i = 0; i < 34; i++) {
       this.splinters.push({
-        worldX: worldX + Phaser.Math.Between(-70, 70),
-        worldY: Phaser.Math.Between(24, 130),
-        z: z + Phaser.Math.Between(-20, 40),
-        vx: Phaser.Math.Between(-380, 380),
-        vy: Phaser.Math.Between(120, 480),
-        vz: Phaser.Math.Between(160, 640),
-        sizeW: Phaser.Math.Between(10, 28),
-        sizeH: Phaser.Math.Between(6, 16),
-        color: colors[i % colors.length],
+        worldX: worldX + Phaser.Math.Between(-85, 85),
+        worldY: Phaser.Math.Between(18, 135),
+        z: z + Phaser.Math.Between(-20, 45),
+        vx: Phaser.Math.Between(-420, 420),
+        vy: Phaser.Math.Between(140, 520),
+        vz: Phaser.Math.Between(140, 680),
+        sizeW: Phaser.Math.Between(14, 32),
+        sizeH: Phaser.Math.Between(8, 18),
+        color: brickPalette[i % brickPalette.length],
+        borderColor: 0x111827,
         alpha: 1
       });
     }
@@ -892,8 +926,8 @@ export class RunnerScene extends Phaser.Scene {
       s.worldX += s.vx * dt;
       s.worldY += s.vy * dt;
       s.z += s.vz * dt;
-      s.vy -= 960 * dt;
-      s.alpha -= dt * 1.35;
+      s.vy -= 980 * dt;
+      s.alpha -= dt * 1.25;
 
       if (s.alpha <= 0 || s.worldY < 0) {
         this.splinters.splice(i, 1);
@@ -901,11 +935,13 @@ export class RunnerScene extends Phaser.Scene {
       }
 
       const proj = this.project3D(s.worldX, s.worldY, s.z);
-      const w = Math.max(3, s.sizeW * proj.scale);
+      const w = Math.max(4, s.sizeW * proj.scale);
       const h = Math.max(3, s.sizeH * proj.scale);
 
       this.particlesGraphics.fillStyle(s.color, s.alpha);
       this.particlesGraphics.fillRect(proj.screenX - w / 2, proj.screenY - h / 2, w, h);
+      this.particlesGraphics.lineStyle(1, s.borderColor, s.alpha * 0.8);
+      this.particlesGraphics.strokeRect(proj.screenX - w / 2, proj.screenY - h / 2, w, h);
     }
   }
 
@@ -914,19 +950,61 @@ export class RunnerScene extends Phaser.Scene {
     const g = this.corridorGraphics;
     g.clear();
 
-    // 1. Horizon Backdrop
-    g.fillStyle(this.isHardMode ? 0x1a060a : 0x0b1026, 1);
+    // 1. Construction Site Sky & Horizon Backdrop
+    g.fillStyle(this.isHardMode ? 0x16070b : 0x0f172a, 1);
     g.fillRect(0, 0, width, HORIZON_Y);
 
-    g.fillStyle(this.isHardMode ? 0x440a14 : 0x1e3a8a, 0.85);
-    g.fillRect(0, HORIZON_Y - 12, width, 12);
+    // Warm industrial glow above horizon
+    g.fillStyle(this.isHardMode ? 0x4c111b : 0x1e293b, 1);
+    g.fillRect(0, HORIZON_Y - 48, width, 48);
+    g.fillStyle(this.isHardMode ? 0x7f1d1d : 0x78350f, 0.7);
+    g.fillRect(0, HORIZON_Y - 14, width, 14);
 
-    // 2. Track Floor Base
-    const floorBaseColor = this.isHardMode ? 0x261015 : 0x172038;
+    // Distant Building Site Skyline & Tower Cranes (with subtle parallax)
+    const parallaxOffset = -this.playerWorldX * 0.05;
+    const craneColor = this.isHardMode ? 0xef4444 : 0xf59e0b;
+
+    // Left Distant Tower Crane
+    const leftCraneX = 110 + parallaxOffset;
+    g.fillStyle(craneColor, 0.75);
+    g.fillRect(leftCraneX, 118, 10, HORIZON_Y - 118);
+    g.fillRect(leftCraneX - 36, 122, 130, 5);
+    g.fillStyle(0x9ca3af, 0.7);
+    g.fillRect(leftCraneX + 74, 127, 2, 28);
+    g.fillStyle(0x991b1b, 0.85);
+    g.fillRect(leftCraneX + 58, 155, 34, 6);
+
+    // Right Distant Tower Crane
+    const rightCraneX = width - 130 + parallaxOffset;
+    g.fillStyle(craneColor, 0.75);
+    g.fillRect(rightCraneX, 124, 10, HORIZON_Y - 124);
+    g.fillRect(rightCraneX - 90, 128, 130, 5);
+
+    // Distant Unfinished Steel Buildings along Horizon
+    const skylinePositions = [40, 230, 380, 550, 710, 860];
+    for (let i = 0; i < skylinePositions.length; i++) {
+      const bx = skylinePositions[i] + parallaxOffset;
+      const bh = 22 + (i % 3) * 12;
+      g.fillStyle(0x1e293b, 0.9);
+      g.fillRect(bx, HORIZON_Y - bh, 48, bh);
+      g.lineStyle(2, 0x7f1d1d, 0.75);
+      g.strokeRect(bx, HORIZON_Y - bh, 48, bh);
+    }
+
+    // Horizon Yellow & Black Hazard Barrier Wall
+    g.fillStyle(0xf59e0b, 1);
+    g.fillRect(0, HORIZON_Y - 8, width, 8);
+    g.fillStyle(0x111827, 1);
+    for (let hx = 0; hx < width; hx += 24) {
+      g.fillRect(hx, HORIZON_Y - 8, 12, 8);
+    }
+
+    // 2. Construction Haul Road Base (Compacted Dirt, Gravel & Asphalt)
+    const floorBaseColor = this.isHardMode ? 0x241215 : 0x26211d;
     g.fillStyle(floorBaseColor, 1);
     g.fillRect(0, HORIZON_Y, width, height - HORIZON_Y);
 
-    // 3. Alternating Perspective Depth Strips
+    // 3. Alternating Perspective Depth Road Strips
     const stripSpacing = 160;
     for (let z = 0; z < 2080; z += stripSpacing) {
       const zNear = z - (this.scrollZ % stripSpacing);
@@ -938,7 +1016,7 @@ export class RunnerScene extends Phaser.Scene {
       const pFarLeft = this.project3D(-440, 0, zFar);
       const pFarRight = this.project3D(440, 0, zFar);
 
-      const stripColor = this.isHardMode ? 0x35141c : 0x1e2946;
+      const stripColor = this.isHardMode ? 0x33181c : 0x322b26;
       g.fillStyle(stripColor, 1);
       g.beginPath();
       g.moveTo(pFarLeft.screenX, pFarLeft.screenY);
@@ -949,7 +1027,7 @@ export class RunnerScene extends Phaser.Scene {
       g.fillPath();
     }
 
-    // 4. Highlight Active Player Lane
+    // 4. Bulldozer Headlight Beam Highlighting Active Lane
     const activeLeftX = LANE_WORLD_X[this.currentLane] - 124;
     const activeRightX = LANE_WORLD_X[this.currentLane] + 124;
     const laneFarL = this.project3D(activeLeftX, 0, 1920);
@@ -957,7 +1035,7 @@ export class RunnerScene extends Phaser.Scene {
     const laneNearL = this.project3D(activeLeftX, 0, -80);
     const laneNearR = this.project3D(activeRightX, 0, -80);
 
-    g.fillStyle(this.isHardMode ? 0xff4444 : 0x38bdf8, 0.18);
+    g.fillStyle(this.isHardMode ? 0xff4444 : 0xfbbf24, 0.18);
     g.beginPath();
     g.moveTo(laneFarL.screenX, laneFarL.screenY);
     g.lineTo(laneFarR.screenX, laneFarR.screenY);
@@ -966,33 +1044,65 @@ export class RunnerScene extends Phaser.Scene {
     g.closePath();
     g.fillPath();
 
-    // 5. Perspective Lane Divider Lines
+    // 5. Perspective Construction Zone Lane Markings
     const boundaryXs = [-390, -130, 130, 390];
     for (let i = 0; i < boundaryXs.length; i++) {
       const bx = boundaryXs[i];
       const pFar = this.project3D(bx, 0, 2000);
       const pNear = this.project3D(bx, 0, -120);
       const isOuter = i === 0 || i === boundaryXs.length - 1;
-      g.lineStyle(isOuter ? 3 : 2, isOuter ? 0xffe135 : 0x475569, isOuter ? 0.9 : 0.65);
+      g.lineStyle(isOuter ? 4 : 2, isOuter ? 0xf59e0b : 0x78716c, isOuter ? 0.95 : 0.7);
       g.lineBetween(pFar.screenX, pFar.screenY, pNear.screenX, pNear.screenY);
     }
 
-    // 6. Scrolling 3D Pillars
+    // 6. Scrolling 3D Roadside Steel I-Beam Girders & Construction Drums
     const sortedPillars = [...this.pillarZPositions].sort((a, b) => b - a);
-    for (const pz of sortedPillars) {
+    for (let idx = 0; idx < sortedPillars.length; idx++) {
+      const pz = sortedPillars[idx];
       if (pz < -80 || pz > 2040) continue;
+
+      const isGirder = Math.floor((pz + this.scrollZ) / 360) % 2 === 0;
+
       for (const side of [-1, 1]) {
-        const baseProj = this.project3D(side * 430, 0, pz);
-        const topProj = this.project3D(side * 430, 200, pz);
-        const pillarW = Math.max(4, 32 * baseProj.scale);
-        const pillarH = Math.max(8, baseProj.screenY - topProj.screenY);
+        const baseProj = this.project3D(side * 435, 0, pz);
 
-        g.fillStyle(0x1e293b, 0.95);
-        g.fillRect(baseProj.screenX - pillarW / 2, topProj.screenY, pillarW, pillarH);
+        if (isGirder) {
+          // Red-Oxide Steel I-Beam Column with Flashing Hazard Beacon
+          const topProj = this.project3D(side * 435, 210, pz);
+          const pillarW = Math.max(5, 34 * baseProj.scale);
+          const pillarH = Math.max(10, baseProj.screenY - topProj.screenY);
+          const leftX = baseProj.screenX - pillarW / 2;
 
-        const lanternH = Math.max(3, 18 * baseProj.scale);
-        g.fillStyle(this.isHardMode ? 0xff3333 : 0x38bdf8, 0.85);
-        g.fillRect(baseProj.screenX - pillarW * 0.6, topProj.screenY + pillarH * 0.18, pillarW * 1.2, lanternH);
+          // Concrete footing
+          const footH = Math.max(3, 18 * baseProj.scale);
+          g.fillStyle(0x64748b, 1);
+          g.fillRect(leftX - pillarW * 0.15, baseProj.screenY - footH, pillarW * 1.3, footH);
+
+          // Red-oxide steel beam web & flanges
+          g.fillStyle(0x7f1d1d, 0.98);
+          g.fillRect(leftX, topProj.screenY, pillarW, pillarH - footH);
+          g.fillStyle(0xb91c1c, 1);
+          g.fillRect(leftX, topProj.screenY, pillarW * 0.25, pillarH - footH);
+          g.fillRect(leftX + pillarW * 0.75, topProj.screenY, pillarW * 0.25, pillarH - footH);
+
+          // Amber Warning Beacon on top
+          const beaconS = Math.max(3, 14 * baseProj.scale);
+          g.fillStyle(this.isHardMode ? 0xff3333 : 0xffe135, 0.95);
+          g.fillRect(baseProj.screenX - beaconS / 2, topProj.screenY - beaconS, beaconS, beaconS);
+        } else {
+          // Orange & White Striped Construction Hazard Barrel / Cone
+          const topProj = this.project3D(side * 435, 85, pz);
+          const barrelW = Math.max(4, 38 * baseProj.scale);
+          const barrelH = Math.max(6, baseProj.screenY - topProj.screenY);
+          const leftX = baseProj.screenX - barrelW / 2;
+
+          g.fillStyle(0xf97316, 1);
+          g.fillRect(leftX, topProj.screenY, barrelW, barrelH);
+          // White reflective stripes
+          g.fillStyle(0xffffff, 0.95);
+          g.fillRect(leftX, topProj.screenY + barrelH * 0.22, barrelW, barrelH * 0.2);
+          g.fillRect(leftX, topProj.screenY + barrelH * 0.62, barrelW, barrelH * 0.2);
+        }
       }
     }
   }
@@ -1003,8 +1113,8 @@ export class RunnerScene extends Phaser.Scene {
 
     if (this.boardTargets.length === 0) return;
 
-    const boardWorldW = 224;
-    const boardWorldH = 124;
+    const boardWorldW = 228;
+    const boardWorldH = 128;
 
     for (const board of this.boardTargets) {
       if (board.broken) continue;
@@ -1014,57 +1124,127 @@ export class RunnerScene extends Phaser.Scene {
       const topProj = this.project3D(laneCenterX, boardWorldH, this.waveZ);
 
       const screenW = boardWorldW * baseProj.scale;
-      const screenH = Math.max(16, baseProj.screenY - topProj.screenY);
+      const screenH = Math.max(18, baseProj.screenY - topProj.screenY);
       const leftX = baseProj.screenX - screenW / 2;
       const topY = topProj.screenY;
 
       // Ground Shadow
-      g.fillStyle(0x000000, 0.45);
-      g.fillRect(leftX + 4, baseProj.screenY - 4, screenW, Math.max(3, 10 * baseProj.scale));
+      g.fillStyle(0x000000, 0.5);
+      g.fillRect(leftX + 4, baseProj.screenY - 4, screenW, Math.max(4, 12 * baseProj.scale));
 
-      // Support Posts
-      const postW = Math.max(3, 20 * baseProj.scale);
-      const postH = Math.max(5, 26 * baseProj.scale);
-      g.fillStyle(0x475569, 1);
-      g.fillRect(leftX, baseProj.screenY - postH, postW, postH);
-      g.fillRect(leftX + screenW - postW, baseProj.screenY - postH, postW, postH);
+      // Concrete Foundation Curb at Bottom of Wall
+      const curbH = Math.max(3, 14 * baseProj.scale);
+      g.fillStyle(0x64748b, 1);
+      g.fillRect(leftX - 2, baseProj.screenY - curbH, screenW + 4, curbH);
 
-      // 3D Bevel
-      const depthExtrude = Math.max(3, 12 * baseProj.scale);
-      g.fillStyle(0x92400e, 1);
-      g.fillRect(leftX + depthExtrude * 0.5, topY - depthExtrude, screenW, depthExtrude);
-      g.fillRect(leftX + screenW, topY - depthExtrude, depthExtrude, screenH);
+      const wallFaceH = screenH - curbH * 0.6;
+      const depthExtrude = Math.max(3, 14 * baseProj.scale);
 
-      // Main Suffix Gate Face
-      let faceColor = 0xfde68a;
-      let borderColor = 0xb45309;
+      // Determine wall colors based on style & highlight state
+      let mainWallColor = 0xb91c1c; // Classic red brick
+      let altBrickColor = 0x991b1b;
+      let mortarColor = 0xd1d5db;
+      let extrudeColor = 0x450a0a;
+      let borderColor = 0xf59e0b;
 
-      if (board.highlightedCorrect) {
-        faceColor = 0x66ffaa;
-        borderColor = 0x00ff66;
-      } else if (board.highlightedWrong) {
-        faceColor = 0xff7777;
-        borderColor = 0xff0000;
-      } else if (board.lane === this.currentLane) {
-        faceColor = 0xfef08a;
+      if (board.wallStyle === 'cinderblock') {
+        mainWallColor = 0x475569;
+        altBrickColor = 0x334155;
+        mortarColor = 0x94a3b8;
+        extrudeColor = 0x1e293b;
+        borderColor = 0x38bdf8;
+      } else if (board.wallStyle === 'barricade') {
+        mainWallColor = 0xd97706;
+        altBrickColor = 0x92400e;
+        mortarColor = 0xfef08a;
+        extrudeColor = 0x451a03;
         borderColor = 0xffe135;
       }
 
-      const boardFaceH = screenH - postH * 0.4;
-      g.fillStyle(faceColor, 1);
-      g.fillRect(leftX, topY, screenW, boardFaceH);
+      if (board.highlightedCorrect) {
+        mainWallColor = 0x15803d;
+        altBrickColor = 0x166534;
+        borderColor = 0x00ff88;
+      } else if (board.highlightedWrong) {
+        mainWallColor = 0x7f1d1d;
+        altBrickColor = 0x450a0a;
+        borderColor = 0xff0000;
+      } else if (board.lane === this.currentLane) {
+        if (board.wallStyle === 'brick') {
+          mainWallColor = 0xdc2626;
+        }
+        borderColor = 0xffe135;
+      }
 
+      // 3D Top & Right Extrusion Bevel (Thickness of the brick wall)
+      g.fillStyle(extrudeColor, 1);
+      g.fillRect(leftX + depthExtrude * 0.4, topY - depthExtrude, screenW, depthExtrude);
+      g.fillRect(leftX + screenW, topY - depthExtrude, depthExtrude, wallFaceH + depthExtrude);
+
+      // Main Brick Wall Face
+      g.fillStyle(mainWallColor, 1);
+      g.fillRect(leftX, topY, screenW, wallFaceH);
+
+      // Draw Mortar Lines & Staggered Brick Courses!
+      const courses = 5;
+      const courseH = wallFaceH / courses;
+      const mortarThickness = Math.max(1, 2 * baseProj.scale);
+
+      // Alternating darker bricks for authentic 8-bit brickwork texture
+      g.fillStyle(altBrickColor, 0.85);
+      for (let r = 0; r < courses; r++) {
+        const ry = topY + r * courseH;
+        const offset = (r % 2) * (screenW * 0.125);
+        for (let c = 0; c < 4; c++) {
+          if ((r + c) % 2 === 0) {
+            const bx = leftX + offset + c * (screenW * 0.25);
+            const bw = Math.min(screenW * 0.22, leftX + screenW - bx);
+            if (bw > 2) {
+              g.fillRect(bx, ry + mortarThickness, bw, courseH - mortarThickness * 1.5);
+            }
+          }
+        }
+      }
+
+      // Horizontal & Vertical Cement Mortar Lines
+      g.lineStyle(mortarThickness, mortarColor, 0.75);
+      for (let r = 1; r < courses; r++) {
+        const ly = topY + r * courseH;
+        g.lineBetween(leftX, ly, leftX + screenW, ly);
+      }
+      for (let r = 0; r < courses; r++) {
+        const ry = topY + r * courseH;
+        const offset = (r % 2) * (screenW * 0.125);
+        for (let c = 1; c < 4; c++) {
+          const vx = leftX + offset + c * (screenW * 0.25);
+          if (vx > leftX + 2 && vx < leftX + screenW - 2) {
+            g.lineBetween(vx, ry, vx, ry + courseH);
+          }
+        }
+      }
+
+      // Top Hazard / Concrete Coping Cap on the Wall
+      const capH = Math.max(2, 8 * baseProj.scale);
+      g.fillStyle(board.lane === this.currentLane ? 0xffe135 : 0x9ca3af, 1);
+      g.fillRect(leftX - 1, topY, screenW + 2, capH);
+
+      // Outer Wall Frame
       g.lineStyle(Math.max(1.5, 3 * baseProj.scale), borderColor, 1);
-      g.strokeRect(leftX, topY, screenW, boardFaceH);
+      g.strokeRect(leftX, topY, screenW, wallFaceH);
 
-      // Inner banner plate
-      const centerY = topY + boardFaceH * 0.5;
-      const plateW = screenW * 0.86;
-      const plateH = boardFaceH * 0.64;
-      g.fillStyle(board.lane === this.currentLane ? 0xfffbeb : 0xfef3c7, 0.94);
-      g.fillRect(baseProj.screenX - plateW / 2, centerY - plateH / 2, plateW, plateH);
+      // Bolted High-Contrast Signplate in Center of Brick Wall for Maximum Text Legibility
+      const centerY = topY + wallFaceH * 0.52;
+      const plateW = screenW * 0.84;
+      const plateH = wallFaceH * 0.58;
+      const plateLeft = baseProj.screenX - plateW / 2;
+      const plateTop = centerY - plateH / 2;
 
-      // Update Suffix Text on 3D Gate (scales dynamically with distance)
+      g.fillStyle(board.lane === this.currentLane ? 0xfffbeb : 0xfef3c7, 0.96);
+      g.fillRect(plateLeft, plateTop, plateW, plateH);
+      g.lineStyle(Math.max(1, 2.5 * baseProj.scale), 0x1f2937, 1);
+      g.strokeRect(plateLeft, plateTop, plateW, plateH);
+
+      // Update Suffix Text on 3D Brick Wall Signplate
       const badgeScale = Phaser.Math.Clamp(baseProj.scale * 1.6, 0.35, 1.4);
       board.badgeObj.setPosition(baseProj.screenX, centerY);
       board.badgeObj.setScale(badgeScale);

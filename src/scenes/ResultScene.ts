@@ -40,27 +40,33 @@ export class ResultScene extends Phaser.Scene {
   create(): void {
     const { width, height } = this.scale;
 
+    const siteBg = this.add.image(width / 2, height / 2, 'dojang_bg');
+    siteBg.setDisplaySize(width, height);
+    siteBg.setAlpha(0.35);
+
     const bg = this.add.graphics();
-    bg.fillStyle(0x0a0a14, 0.96);
+    bg.fillStyle(0x0a0c14, 0.88);
     bg.fillRect(0, 0, width, height);
 
-    bg.lineStyle(3, this.passed ? 0x00ff66 : 0xff3333, 1);
+    bg.lineStyle(3, this.passed ? 0xf59e0b : 0xff3333, 1);
     bg.strokeRect(16, 16, width - 32, height - 32);
 
     let titleText = 'KEEP PRACTICING!';
     let titleColor = '#ff4444';
     if (this.roundMistakes.length === 0 && this.passed) {
-      titleText = 'FLAWLESS RUN!';
+      titleText = 'FLAWLESS DEMOLITION!';
       titleColor = '#ffe135';
     } else if (this.passed) {
-      titleText = 'SHEET COMPLETE!';
+      titleText = 'SITE CLEARED!';
       titleColor = '#00ff66';
     }
 
     this.add.text(width / 2, 48, titleText, {
       fontFamily: "'Press Start 2P', monospace",
       fontSize: '26px',
-      color: titleColor
+      color: titleColor,
+      stroke: '#000000',
+      strokeThickness: 5
     }).setOrigin(0.5);
 
     this.add.text(width / 2, 84, `${this.level.title} (${this.level.subtitle})`, {
@@ -73,7 +79,7 @@ export class ResultScene extends Phaser.Scene {
     this.add.text(
       width / 2,
       116,
-      `SCORE: ${this.stats.score}   |   STREAK: ${this.stats.bestStreak}   |   MASTERED: ${this.stats.totalWordsCompleted}`,
+      `SCORE: ${this.stats.score}   |   STREAK: ${this.stats.bestStreak}   |   WALLS SMASHED: ${this.stats.totalWordsCompleted}`,
       {
         fontFamily: "'Press Start 2P', monospace",
         fontSize: '12px',
@@ -87,19 +93,19 @@ export class ResultScene extends Phaser.Scene {
     const boxH = 280;
 
     const reviewBg = this.add.graphics();
-    reviewBg.fillStyle(0x101222, 0.94);
+    reviewBg.fillStyle(0x101420, 0.94);
     reviewBg.fillRoundedRect(boxX, boxY, boxW, boxH, 8);
     reviewBg.lineStyle(2, this.roundMistakes.length > 0 ? 0xff4444 : 0x00ff88, 1);
     reviewBg.strokeRoundedRect(boxX, boxY, boxW, boxH, 8);
 
     if (this.roundMistakes.length === 0) {
-      this.add.text(width / 2, boxY + 70, '★ AMAZING! ZERO MISTAKES! ★', {
+      this.add.text(width / 2, boxY + 70, '🚜 AMAZING! ZERO MISTAKES! 🧱', {
         fontFamily: "'Press Start 2P', monospace",
         fontSize: '18px',
         color: '#ffe135'
       }).setOrigin(0.5);
 
-      this.add.text(width / 2, boxY + 130, 'Every root word and suffix gate was matched', {
+      this.add.text(width / 2, boxY + 130, 'Every brick wall and suffix barrier was smashed', {
         fontFamily: "'Fredoka', sans-serif",
         fontSize: '18px',
         color: '#ffffff'
