@@ -3,6 +3,7 @@
 class SoundEffectsManager {
   private ctx: AudioContext | null = null;
   private enabled: boolean = true;
+  private isAudioUnlocked: boolean = false;
 
   private getContext(): AudioContext | null {
     if (!this.ctx && typeof window !== 'undefined') {
@@ -15,6 +16,35 @@ class SoundEffectsManager {
       this.ctx.resume();
     }
     return this.ctx;
+  }
+
+  public primeAudio(): void {
+    if (typeof window === 'undefined') return;
+
+    // 1. Resume Web Audio AudioContext
+    const ctx = this.getContext();
+    if (ctx && ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+
+    // 2. Play silent HTML5 audio snippet once on user gesture to shift iOS from Ambient to Playback category
+    if (!this.isAudioUnlocked && typeof document !== 'undefined') {
+      try {
+        const silentAudio = document.createElement('audio');
+        silentAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+        silentAudio.volume = 0.01;
+        const playPromise = silentAudio.play();
+        if (playPromise !== undefined) {
+          playPromise.then(() => {
+            this.isAudioUnlocked = true;
+          }).catch(() => {
+            // Wait for next user gesture
+          });
+        }
+      } catch (err) {
+        // ignore
+      }
+    }
   }
 
   public toggleSound(): boolean {

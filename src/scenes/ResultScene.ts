@@ -40,6 +40,11 @@ export class ResultScene extends Phaser.Scene {
   create(): void {
     const { width, height } = this.scale;
 
+    this.input.on('pointerdown', () => {
+      soundFx.primeAudio();
+      speechManager.primeSpeech();
+    });
+
     const siteBg = this.add.image(width / 2, height / 2, 'dojang_bg');
     siteBg.setDisplaySize(width, height);
     siteBg.setAlpha(0.35);

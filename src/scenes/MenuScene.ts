@@ -3,6 +3,7 @@ import { ALL_LEVELS, getDefaultLevel } from '../data/levels';
 import { WordLevel, QuizMode } from '../data/types';
 import { loadPlayerStats } from '../data/progress';
 import { soundFx } from '../utils/soundEffects';
+import { speechManager } from '../utils/pronunciation';
 
 export class MenuScene extends Phaser.Scene {
   private selectedLevelIndex: number = 0; // Default to Level 1 (School Suffix Sheet)
@@ -44,6 +45,11 @@ export class MenuScene extends Phaser.Scene {
   create(): void {
     const { width, height } = this.scale;
     const stats = loadPlayerStats();
+
+    this.input.on('pointerdown', () => {
+      soundFx.primeAudio();
+      speechManager.primeSpeech();
+    });
 
     // 1. Building Site Pixel-Art Panorama Background
     const bg = this.add.image(width / 2, height / 2, 'dojang_bg');

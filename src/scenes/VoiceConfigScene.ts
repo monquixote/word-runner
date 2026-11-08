@@ -141,6 +141,11 @@ export class VoiceConfigScene extends Phaser.Scene {
       speechManager.testVoice();
     });
 
+    this.input.on('pointerdown', () => {
+      soundFx.primeAudio();
+      speechManager.primeSpeech();
+    });
+
     if (this.input.keyboard) {
       this.input.keyboard.on('keydown-ESC', () => this.goBack());
       this.input.keyboard.on('keydown-LEFT', () => this.changePage(-1));
@@ -251,12 +256,16 @@ export class VoiceConfigScene extends Phaser.Scene {
       const testZone = this.add.zone(testBtnX, 0, testBtnW, testBtnH).setInteractive({ useHandCursor: true });
       testZone.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
         pointer.event.stopPropagation();
+        soundFx.primeAudio();
+        speechManager.primeSpeech();
         speechManager.testVoice(voiceURI || undefined);
       });
 
       const cardZone = this.add.zone(-testBtnW / 2, 0, cardW - testBtnW - 20, cardH).setInteractive({ useHandCursor: true });
       cardZone.on('pointerdown', () => {
         soundFx.playSelect();
+        soundFx.primeAudio();
+        speechManager.primeSpeech();
         speechManager.setSelectedVoiceURI(isAuto ? null : item.voiceURI);
         speechManager.testVoice(voiceURI || undefined);
         this.renderVoiceList();

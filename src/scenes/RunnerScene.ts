@@ -485,6 +485,8 @@ export class RunnerScene extends Phaser.Scene {
     }
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      soundFx.primeAudio();
+      speechManager.primeSpeech();
       if (pointer.y < 112 || this.isProcessingImpact || this.isTransitioning) return;
       this.hasActivePointerDown = true;
       this.pointerDownX = pointer.x;

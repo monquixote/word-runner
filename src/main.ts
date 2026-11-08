@@ -43,6 +43,22 @@ function resizeApp() {
   }
 }
 
+import { soundFx } from './utils/soundEffects';
+import { speechManager } from './utils/pronunciation';
+
+function unlockAudioAndSpeech() {
+  soundFx.primeAudio();
+  speechManager.primeSpeech();
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('touchstart', unlockAudioAndSpeech, { passive: true });
+  window.addEventListener('touchend', unlockAudioAndSpeech, { passive: true });
+  window.addEventListener('pointerdown', unlockAudioAndSpeech, { passive: true });
+  window.addEventListener('click', unlockAudioAndSpeech, { passive: true });
+  window.addEventListener('keydown', unlockAudioAndSpeech, { passive: true });
+}
+
 window.addEventListener('resize', resizeApp);
 window.addEventListener('orientationchange', () => {
   setTimeout(resizeApp, 100);

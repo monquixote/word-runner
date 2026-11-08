@@ -45,6 +45,9 @@ export function parseVoiceMetadata(
 class SpeechManager {
   private defaultEnglishVoice: SpeechSynthesisVoice | null = null;
   private selectedVoiceURI: string | null = null;
+  private activeUtterance: SpeechSynthesisUtterance | null = null;
+  private pendingTimeout: ReturnType<typeof setTimeout> | null = null;
+  private isPrimed: boolean = false;
 
   constructor() {
     if (typeof window !== 'undefined' && window.localStorage) {
@@ -59,29 +62,40 @@ class SpeechManager {
     const findVoices = () => {
       const voices = window.speechSynthesis.getVoices();
       if (!voices || voices.length === 0) return;
-
-      const enVoices = voices.filter(v => /^en([-_]|$)/i.test(v.lang || ''));
-      if (enVoices.length === 0) return;
-
-      const localEn = enVoices.filter(v => v.localService);
-      const pool = localEn.length > 0 ? localEn : enVoices;
-
-      // Prefer British English (en-GB) such as Daniel, Martha, Serena, Arthur, or Google UK
-      const gbVoice =
-        pool.find(v => /en[-_]gb/i.test(v.lang || '') && /daniel|serena|martha|arthur|kate/i.test(v.name)) ||
-        pool.find(v => /en[-_]gb/i.test(v.lang || '')) ||
-        enVoices.find(v => /en[-_]gb/i.test(v.lang || '')) ||
-        pool[0] ||
-        enVoices[0] ||
-        null;
-
-      this.defaultEnglishVoice = gbVoice;
+      this.defaultEnglishVoice = this.findBestEnglishVoice(voices);
     };
 
     findVoices();
     if (typeof window.speechSynthesis.onvoiceschanged !== 'undefined') {
       window.speechSynthesis.onvoiceschanged = findVoices;
     }
+  }
+
+  public findBestEnglishVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
+    if (!voices || voices.length === 0) return null;
+
+    const enVoices = voices.filter(v => /^en([-_]|$)/i.test(v.lang || ''));
+    if (enVoices.length === 0) return voices[0] || null;
+
+    // 1. British English preferred voices (Daniel, Martha, Serena, Arthur, Kate, Oliver, George)
+    const gbPreferred = enVoices.find(v =>
+      /en[-_]gb/i.test(v.lang || '') &&
+      /daniel|serena|martha|arthur|kate|oliver|george|uk english/i.test(v.name)
+    );
+    if (gbPreferred) return gbPreferred;
+
+    // 2. Any British English voice
+    const gbAny = enVoices.find(v => /en[-_]gb/i.test(v.lang || ''));
+    if (gbAny) return gbAny;
+
+    // 3. Preferred general English voices (Samantha, Karen, Alex, Victoria, Moira, Tessa)
+    const generalPreferred = enVoices.find(v =>
+      /samantha|karen|alex|victoria|moira|tessa/i.test(v.name)
+    );
+    if (generalPreferred) return generalPreferred;
+
+    // 4. Any English voice in pool
+    return enVoices[0] || null;
   }
 
   public getAvailableVoices(): AvailableVoice[] {
@@ -181,6 +195,34 @@ class SpeechManager {
     }
   }
 
+  /**
+   * Primes speech synthesis on the first user interaction to authorize
+   * subsequent programmatic/asynchronous speech on iOS Safari.
+   */
+  public primeSpeech(): void {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (this.isPrimed) return;
+
+    try {
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+      const dummy = new SpeechSynthesisUtterance(' ');
+      dummy.volume = 0.01;
+      dummy.rate = 10;
+      dummy.onend = () => {
+        this.isPrimed = true;
+      };
+      dummy.onerror = () => {
+        this.isPrimed = true;
+      };
+      window.speechSynthesis.speak(dummy);
+      this.isPrimed = true;
+    } catch (e) {
+      console.warn('Speech priming error:', e);
+    }
+  }
+
   public testVoice(voiceURI?: string): void {
     this.speakWord('Enjoyment! Careful! Happiness!', voiceURI);
   }
@@ -189,29 +231,59 @@ class SpeechManager {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     if (!soundFx.isEnabled()) return;
 
+    soundFx.primeAudio();
+
+    const cleanText = text.replace(/^-/, '').trim();
+    if (!cleanText) return;
+
+    if (this.pendingTimeout) {
+      clearTimeout(this.pendingTimeout);
+      this.pendingTimeout = null;
+    }
+
     try {
       if (window.speechSynthesis.paused) {
         window.speechSynthesis.resume();
       }
-      window.speechSynthesis.cancel();
 
-      if (!this.defaultEnglishVoice) {
-        this.initVoices();
+      // If speech is ongoing, cancel it first.
+      // On iOS Safari / WebKit, calling speak() immediately in the same call stack
+      // as cancel() causes WebKit to swallow the new utterance.
+      // We therefore introduce a short 50ms buffer when cancelling active speech.
+      if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+        window.speechSynthesis.cancel();
+        this.pendingTimeout = setTimeout(() => {
+          this.pendingTimeout = null;
+          this.executeSpeak(cleanText, overrideVoiceURI);
+        }, 50);
+      } else {
+        this.executeSpeak(cleanText, overrideVoiceURI);
+      }
+    } catch (e) {
+      console.warn('Speech synthesis error:', e);
+    }
+  }
+
+  private executeSpeak(cleanText: string, overrideVoiceURI?: string, retryWithoutVoice: boolean = false): void {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+
+    try {
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
       }
 
       const voices = window.speechSynthesis.getVoices();
       const preferredURI = overrideVoiceURI || this.getSelectedVoiceURI();
 
       let activeVoice: SpeechSynthesisVoice | null = null;
-      if (preferredURI && preferredURI !== 'auto') {
-        activeVoice = voices.find(v => (v.voiceURI || v.name) === preferredURI) || null;
+      if (!retryWithoutVoice) {
+        if (preferredURI && preferredURI !== 'auto') {
+          activeVoice = voices.find(v => (v.voiceURI || v.name) === preferredURI) || null;
+        }
+        if (!activeVoice) {
+          activeVoice = this.findBestEnglishVoice(voices);
+        }
       }
-      if (!activeVoice) {
-        activeVoice = this.defaultEnglishVoice;
-      }
-
-      const cleanText = text.replace(/^-/, '').trim();
-      if (!cleanText) return;
 
       const utterance = new SpeechSynthesisUtterance(cleanText);
       if (activeVoice) {
@@ -225,15 +297,45 @@ class SpeechManager {
       utterance.pitch = this.getUserPitch() ?? 1.0;
       utterance.volume = 1.0;
 
+      // Keep strong reference on instance & window to protect against Safari GC bug
+      this.activeUtterance = utterance;
+      (window as unknown as { __activeUtterance?: SpeechSynthesisUtterance | null }).__activeUtterance = utterance;
+
+      utterance.onend = () => {
+        if (this.activeUtterance === utterance) {
+          this.activeUtterance = null;
+          (window as unknown as { __activeUtterance?: SpeechSynthesisUtterance | null }).__activeUtterance = null;
+        }
+      };
+
+      utterance.onerror = (e) => {
+        console.warn('Speech synthesis utterance error:', e);
+        if (this.activeUtterance === utterance) {
+          this.activeUtterance = null;
+          (window as unknown as { __activeUtterance?: SpeechSynthesisUtterance | null }).__activeUtterance = null;
+        }
+        // If an explicit voice caused an error (e.g. uninstalled cloud voice on iOS), fallback to system default
+        if (activeVoice && !retryWithoutVoice) {
+          console.log('[Speech] Retrying with system default utterance fallback...');
+          this.executeSpeak(cleanText, undefined, true);
+        }
+      };
+
       window.speechSynthesis.speak(utterance);
-    } catch (e) {
-      console.warn('Speech synthesis error:', e);
+    } catch (err) {
+      console.warn('executeSpeak error:', err);
     }
   }
 
   public stop(): void {
+    if (this.pendingTimeout) {
+      clearTimeout(this.pendingTimeout);
+      this.pendingTimeout = null;
+    }
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
+      this.activeUtterance = null;
+      (window as unknown as { __activeUtterance?: SpeechSynthesisUtterance | null }).__activeUtterance = null;
     }
   }
 }
