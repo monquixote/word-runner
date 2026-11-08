@@ -355,8 +355,8 @@ export class RunnerScene extends Phaser.Scene {
       fontSize: '22px'
     }).setOrigin(0.5).setInteractive({ useHandCursor: true });
 
-    this.promptAudioBtn.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      pointer.event.stopPropagation();
+    this.promptAudioBtn.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+      pointer.event?.stopPropagation?.();
       if (this.currentSpokenText) {
         speechManager.speakWord(this.currentSpokenText);
       }

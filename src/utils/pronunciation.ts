@@ -47,7 +47,6 @@ class SpeechManager {
   private selectedVoiceURI: string | null = null;
   private activeUtterance: SpeechSynthesisUtterance | null = null;
   private pendingTimeout: ReturnType<typeof setTimeout> | null = null;
-  private isPrimed: boolean = false;
 
   constructor() {
     if (typeof window !== 'undefined' && window.localStorage) {
@@ -201,39 +200,39 @@ class SpeechManager {
    */
   public primeSpeech(): void {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-    if (this.isPrimed) return;
-
     try {
       if (window.speechSynthesis.paused) {
         window.speechSynthesis.resume();
       }
-      const dummy = new SpeechSynthesisUtterance(' ');
-      dummy.volume = 0.01;
-      dummy.rate = 10;
-      dummy.onend = () => {
-        this.isPrimed = true;
-      };
-      dummy.onerror = () => {
-        this.isPrimed = true;
-      };
-      window.speechSynthesis.speak(dummy);
-      this.isPrimed = true;
     } catch (e) {
-      console.warn('Speech priming error:', e);
+      // ignore
+    }
+  }
+
+  public speechStatusText: string = 'Ready';
+  public onStatusChange?: (status: string) => void;
+
+  private setStatus(msg: string): void {
+    this.speechStatusText = msg;
+    if (this.onStatusChange) {
+      try {
+        this.onStatusChange(msg);
+      } catch (err) {
+        // ignore
+      }
     }
   }
 
   public testVoice(voiceURI?: string): void {
-    this.speakWord('Enjoyment! Careful! Happiness!', voiceURI);
+    this.speakWord('Enjoyment', voiceURI);
   }
 
   public speakWord(text: string, overrideVoiceURI?: string): void {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     if (!soundFx.isEnabled()) return;
 
-    soundFx.primeAudio();
-
-    const cleanText = text.replace(/^-/, '').trim();
+    // Remove punctuation to prevent iOS 17/18 speech synthesis crash / silent failure
+    const cleanText = text.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
     if (!cleanText) return;
 
     if (this.pendingTimeout) {
@@ -246,21 +245,13 @@ class SpeechManager {
         window.speechSynthesis.resume();
       }
 
-      // If speech is ongoing, cancel it first.
-      // On iOS Safari / WebKit, calling speak() immediately in the same call stack
-      // as cancel() causes WebKit to swallow the new utterance.
-      // We therefore introduce a short 50ms buffer when cancelling active speech.
-      if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
-        window.speechSynthesis.cancel();
-        this.pendingTimeout = setTimeout(() => {
-          this.pendingTimeout = null;
-          this.executeSpeak(cleanText, overrideVoiceURI);
-        }, 50);
-      } else {
-        this.executeSpeak(cleanText, overrideVoiceURI);
-      }
+      // Clear any previous queued / stuck utterance
+      window.speechSynthesis.cancel();
+
+      this.executeSpeak(cleanText, overrideVoiceURI);
     } catch (e) {
       console.warn('Speech synthesis error:', e);
+      this.setStatus('Error: ' + String(e));
     }
   }
 
@@ -301,11 +292,18 @@ class SpeechManager {
       this.activeUtterance = utterance;
       (window as unknown as { __activeUtterance?: SpeechSynthesisUtterance | null }).__activeUtterance = utterance;
 
+      this.setStatus(`Speaking: "${cleanText}"...`);
+
+      utterance.onstart = () => {
+        this.setStatus(`Speaking: "${cleanText}"`);
+      };
+
       utterance.onend = () => {
         if (this.activeUtterance === utterance) {
           this.activeUtterance = null;
           (window as unknown as { __activeUtterance?: SpeechSynthesisUtterance | null }).__activeUtterance = null;
         }
+        this.setStatus('Ready');
       };
 
       utterance.onerror = (e) => {
@@ -314,6 +312,7 @@ class SpeechManager {
           this.activeUtterance = null;
           (window as unknown as { __activeUtterance?: SpeechSynthesisUtterance | null }).__activeUtterance = null;
         }
+        this.setStatus(`Speech error: ${e.error || 'unknown'}`);
         // If an explicit voice caused an error (e.g. uninstalled cloud voice on iOS), fallback to system default
         if (activeVoice && !retryWithoutVoice) {
           console.log('[Speech] Retrying with system default utterance fallback...');
@@ -324,6 +323,7 @@ class SpeechManager {
       window.speechSynthesis.speak(utterance);
     } catch (err) {
       console.warn('executeSpeak error:', err);
+      this.setStatus('Error: ' + String(err));
     }
   }
 

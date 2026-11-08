@@ -54,6 +54,7 @@ function unlockAudioAndSpeech() {
 if (typeof window !== 'undefined') {
   window.addEventListener('touchstart', unlockAudioAndSpeech, { passive: true });
   window.addEventListener('touchend', unlockAudioAndSpeech, { passive: true });
+  window.addEventListener('pointerup', unlockAudioAndSpeech, { passive: true });
   window.addEventListener('pointerdown', unlockAudioAndSpeech, { passive: true });
   window.addEventListener('click', unlockAudioAndSpeech, { passive: true });
   window.addEventListener('keydown', unlockAudioAndSpeech, { passive: true });

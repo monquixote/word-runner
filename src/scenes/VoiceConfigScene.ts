@@ -42,12 +42,24 @@ export class VoiceConfigScene extends Phaser.Scene {
       strokeThickness: 5
     }).setOrigin(0.5);
 
-    this.activeVoiceText = this.add.text(width / 2, 70, `ACTIVE: ${speechManager.getActiveVoiceLabel()}`, {
+    this.activeVoiceText = this.add.text(width / 2, 66, `ACTIVE: ${speechManager.getActiveVoiceLabel()}`, {
       fontFamily: "'Fredoka', 'Press Start 2P', sans-serif",
       fontSize: '15px',
       fontStyle: 'bold',
       color: '#00ffaa'
     }).setOrigin(0.5);
+
+    const statusText = this.add.text(width / 2, 88, `STATUS: ${speechManager.speechStatusText}`, {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '13px',
+      color: '#e2e8f0'
+    }).setOrigin(0.5);
+
+    speechManager.onStatusChange = (status: string) => {
+      if (statusText && statusText.active) {
+        statusText.setText(`STATUS: ${status}`);
+      }
+    };
 
     const soundToggle = this.add.text(width - 24, 20, soundFx.isEnabled() ? '🔊' : '🔇', {
       fontSize: '20px'
@@ -254,18 +266,13 @@ export class VoiceConfigScene extends Phaser.Scene {
       }).setOrigin(0.5);
 
       const testZone = this.add.zone(testBtnX, 0, testBtnW, testBtnH).setInteractive({ useHandCursor: true });
-      testZone.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-        pointer.event.stopPropagation();
-        soundFx.primeAudio();
-        speechManager.primeSpeech();
+      testZone.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+        pointer.event?.stopPropagation?.();
         speechManager.testVoice(voiceURI || undefined);
       });
 
       const cardZone = this.add.zone(-testBtnW / 2, 0, cardW - testBtnW - 20, cardH).setInteractive({ useHandCursor: true });
-      cardZone.on('pointerdown', () => {
-        soundFx.playSelect();
-        soundFx.primeAudio();
-        speechManager.primeSpeech();
+      cardZone.on('pointerup', () => {
         speechManager.setSelectedVoiceURI(isAuto ? null : item.voiceURI);
         speechManager.testVoice(voiceURI || undefined);
         this.renderVoiceList();
